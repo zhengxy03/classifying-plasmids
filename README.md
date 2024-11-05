@@ -75,7 +75,7 @@ cat connected_components.tsv | perl -nla -F"\t" -e '
     printf qq{%s\n}, $_ for @F
 ' > components.list
 
-wc -l connected_components components.list
+wc -l connected_components.tsv components.list
 
 faops some -i refseq.fa components.list stdout >refseq.nr.fa
 faops some refseq.fa <(cut -f 1 connected_components.tsv) stdout >> refseq.nr.fa
