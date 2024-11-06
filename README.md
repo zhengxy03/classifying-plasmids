@@ -55,6 +55,11 @@ find job -maxdepth 1 -type f -name "[0-9]??" | sort | parallel -j 4 '
 ' > redundant.tsv
 
 head -n 5 redundant.tsv
+#NZ_PJOO01000034.1       NZ_JACXCF010000024.1    0.00997914      0       682/1000
+#NZ_JABWEE020000068.1    NZ_JAXUFS010000016.1    0.00208065      0       918/1000
+#NZ_PKSS02000108.1       NZ_JAXUFS010000016.1    0.00420918      0       844/1000
+#NZ_QXXP01000130.1       NZ_MUMV01000094.1       0.0028554       0       890/1000
+#NZ_JACGGJ010000012.1    NZ_MUMV01000112.1       0.00399629      0       851/1000
 
 cat redundant.tsv | wc -l
 
@@ -79,3 +84,58 @@ wc -l connected_components.tsv components.list
 
 faops some -i refseq.fa components.list stdout >refseq.nr.fa
 faops some refseq.fa <(cut -f 1 connected_components.tsv) stdout >> refseq.nr.fa
+
+cat refseq.nr.fa | head -n 10
+#>NZ_JACXCD010000018.1
+#TGCGCCAGAATGCGCTGTTGCTTGAGCGAAAACCCGCTGTACCGCCATCGAAACGGGCACATACCGGCAGAGTGGCTGTG
+#AAAGAAAGTAATCAGCGATGGTGCTCTGACGGGTTTGAGTTCCGCTGTGATAACGGAGAAAAACTGCGGGTCACGTTCGC
+#GCTGGACTGCTGTGACCGTGAGGCACTGCACTGGGCGGTCACAACGGGTGGCTTCGACAGTGAAACAGTACAGGACGTCA
+#TGCTGGGAGCAGTGGAACGCCGCTTTGGCAGCGAGCTTCCGGCGTCTCCAGTGGAGTGGCTGACGGATAATGGTTCATGC
+
+rm -fr job
+```
+# 3 Grouping by MinHash
+```
+mkdir ~/project/plasmid/grouping
+cd ~/project/plasmid/grouping
+
+#get ref sketch
+cat ../nr/refseq.nr.fa | mash sketch -k 21 -s 1000 -i -p 8 - -o refseq.nr.k21s1000.msh
+
+#split & get nr plasmid 
+faops size ../nr/refseq.nr.fa | cut -f 1 | split -l 1000 -a 3 -d - job/
+
+# get nr sketch
+find job -maxdepth 1 -type f -name "[0-9]??" | sort | 
+    parallel -j 4 --line-buffer '
+        echo >&2 "==> {}"
+        faops some ../nr/refseq.nr.fa {} stdout | mash sketch -k 21 -s 1000 -i -p 6 - -o {}.msh
+    '
+
+# calculate dist
+find job -maxdepth 1 -type f -name "[0-9]??" | sort |
+    parallel -j 4 --line-buffer '
+        echo >&2 "==> {}"
+        mash dist -p 6 {}.msh refseq.nr.k21s1000.msh > {}.tsv
+    '
+
+find job -maxdepth 1 -type f -name "[0-9]??" | sort |
+    parallel -j 1 '
+        cat {}.tsv
+    ' > dist_full.tsv
+
+
+head -n 5 connected.tsv
+
+cat connected.tsv | wc -l
+
+mkdir group
+cat connected.tsv | perl -nla -F"\t" -MGraph::Undirected -MPath::Tiny -e '
+    BEGIN {
+        our $g = Graph::Undirected->new;
+    }
+    $g->add_edge($F[0], $F[1]);
+
+    END {
+        my @rare
+    } 
