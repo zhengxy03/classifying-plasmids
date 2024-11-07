@@ -124,9 +124,8 @@ find job -maxdepth 1 -type f -name "[0-9]??" | sort |
         cat {}.tsv
     ' > dist_full.tsv
 
-
+cat dist_full.tsv | tsv-filter --ff-str-ne 1:2 --le 3:0.05 > connected.tsv
 head -n 5 connected.tsv
-
 cat connected.tsv | wc -l
 
 mkdir group
@@ -137,5 +136,36 @@ cat connected.tsv | perl -nla -F"\t" -MGraph::Undirected -MPath::Tiny -e '
     $g->add_edge($F[0], $F[1]);
 
     END {
-        my @rare
+        my @rare;
+        my $serial = 1;
+        my @ccs = $g->connected_components;
+        @ccs = map { $_->[0] }
+            sort { $b->[1] <=> $a->[1] }
+            map { [$_, scalar( @{$_} ) ] } @ccs;
+        for my $cc ( @ccs ){
+            my $count = scalar( @{$cc});
+            if ($count < 50){
+                push @rare, @{$cc};
+            }else{
+                path(qq{group/$serial.lst})->spew(map {qq{$_\n}} @{$cc});
+                $serial++;
+            }
+        }
+        path(qq{group/00.lst})->spew(map {qq{$_\n}} @rare);
+
+        path(qq{grouped.lst})->spew(map {qq{$_\n}} $g->vertices);
     } 
+'
+#get non-grouped
+faops some -i ../nr/refseq.nr.fa grouped.lst stdout | faops size stdin | cut -f 1 > group/lonely.lst
+wc -l group/*
+
+find group -maxdepth 1 -type f -name "[0-9]*.lst" | sort |
+    parallel -j 4 --line-buffer '
+        echo >&2 "==> {}"
+
+        faops some ../nr/refseq.nr.fa {} stdout |
+            mash sketch -k 21 -s 1000 -i -p 6 - -o {}.msh
+        mash dist -p 6 {}.msh {}.msh > {}.tsv
+    '
+
