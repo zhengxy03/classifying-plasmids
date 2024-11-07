@@ -128,6 +128,7 @@ cat dist_full.tsv | tsv-filter --ff-str-ne 1:2 --le 3:0.05 > connected.tsv
 head -n 5 connected.tsv
 cat connected.tsv | wc -l
 
+#group
 mkdir group
 cat connected.tsv | perl -nla -F"\t" -MGraph::Undirected -MPath::Tiny -e '
     BEGIN {
@@ -199,11 +200,20 @@ find group -maxdepth 1 -type f -name "[0-9]*.lst.tsv" | sort |
                 write_tsv(groups, "{.}.groups.tsv")
             '\''
     '
+#.group.tsv
+#group   ids
+#1       NZ_JRRF01000025.1
+#1       NZ_JAJQQO010000031.1
+#2       NZ_LQXZ01000009.1
+
+#subgroup
+mkdir subgroup
+cp group/lonely.lst subgroup/
 
 ```
 # others
 * MinHash
-[MinHash]()
+[MinHash](https://github.com/zhengxy03/language/blob/main/bash/README.md#22-mashminhash)
 * Ward分层聚类方法
 在每一步合并过程中尽可能减少簇内方差的增加。<br>
 簇内平方和（WCSS）：
