@@ -169,3 +169,42 @@ find group -maxdepth 1 -type f -name "[0-9]*.lst" | sort |
         mash dist -p 6 {}.msh {}.msh > {}.tsv
     '
 
+
+find group -maxdepth 1 -type f -name "[0-9]*.lst.tsv" | sort |
+    parallel -j 4 --line-buffer '
+        echo >&2 "==> {}"
+        cat {} |
+            tsv-select -f 1-3 |
+            Rscript -e '\''
+                library(reader);
+                library(tidyr);
+                library(ape);
+                pair_dist <- read.tsv(file("stdin"), col_names=F);
+                tmp <- pair_dist %>%
+                    pivot_wider(names_form = X2, values_form = X3, values_fill = list(X3 = 1.0))
+                tmp <- as.matrix(tmp)
+                mat <- tmp[, -1]
+                rownames(mat) <-tmp[, 1]
+
+                dist_mat <- as.dist(mat)
+                clusters <- hclust(dist_mat, method = "ward.D2")
+                tree <- as.phylo(clusters)
+                write.tree(phy=tree, file="{.}.tree.nwk")
+
+                group <- cutree(clusters, h=0.2) #k=3
+                groups <- as.data.frame(group)
+                groups$ids <- rownames(groups)
+                rownames(groups) <- NULL
+                groups <- groups[order(groups$group), ]
+                write_tsv(groups, "{.}.groups.tsv")
+            '\''
+    '
+
+```
+# others
+* MinHash
+[MinHash]()
+* Ward分层聚类方法
+在每一步合并过程中尽可能减少簇内方差的增加。<br>
+簇内平方和（WCSS）：
+WCSS是衡量簇内离散程度的指标。对于一个簇，WCSS定义为簇内所有点与簇质心之间距离的平方和。
