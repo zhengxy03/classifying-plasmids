@@ -200,7 +200,7 @@ find group -maxdepth 1 -type f -name "[0-9]*.lst.tsv" | sort |
                 write_tsv(groups, "{.}.groups.tsv")
             '\''
     '
-#.group.tsv
+#.lst.group.tsv
 #group   ids
 #1       NZ_JRRF01000025.1
 #1       NZ_JAJQQO010000031.1
@@ -210,7 +210,67 @@ find group -maxdepth 1 -type f -name "[0-9]*.lst.tsv" | sort |
 mkdir subgroup
 cp group/lonely.lst subgroup/
 
+find group -name "*.groups.tsv" | sort |
+    parallel -j 1 -k '
+        cat {} | sed -e "1d" | xargs -I[] echo "{/.}_[]"
+    ' | sed 's/.lst.groups_/_/' | perl -na -F"\t" -MPath::Tiny -e '
+        path(qq{subgroup/$F[0].lst})->append(qq{$F[1]});
+    '
+#00_1.lst
+#NZ_JRRF01000025.1
+#NZ_JAJQQO010000031.1
+
+#ignore small subgroups
+find subgroup -name "*.lst" | sort |
+    parallel -j 1 -k '
+        lines=$(cat {} | wc -l)
+        if ((lines < 5)); then
+            echo -e "{}\t$lines"
+            cat {} >> subgroup/lonely.lst
+            rm {}
+        fi
+    '
+
+#append ccs
+cat ../nr/connected_components.tsv | parallel -j 1 --colsep "\t" '
+    file =$(rg -F -l "{1}" subgroup)
+    echo {} | tr "[:blank:]" "\n" >> ${file}
+'
+
+#remove duplicates
+find subgroup -name "*.lst" | sort |
+    parallel -j 1 '
+        cat {} | sort | uniq > tmp.lst
+        mv tmp.lst {}
+    '
+
+wc -l subgroup/* | sort -nr | head -n 100
+
+wc -l subgroup/* | perl -pe 's/^\s+//' | tsv-filter -d" " --le 1:10 | wc -l
+#278
+
+wc -1 subgroup/* | perl -pe 's/^\s+//' |
+    tsv-filter -d" " --ge 1:50
+    tsv-filter -d" " --regex '2:\d+' | sort -nr > next.tsv
+
+#next.tsv
+#257 subgroup/00_310.lst
+#152 subgroup/00_186.lst
+
+wc -l next.tsv
+#41
+
+#rm -fr job
 ```
+# 4 Plasmid:prepare
+```
+mkdir ~/project/plasmid/genomes
+mkdir ~/project/plasmid/taxon
+
+cd ~/project/plasmid/grouping
+
+echo -e "#Serial\tGroup\tCount\tTarget" > ../taxon/group_target.tsv
+
 # others
 * MinHash
 [MinHash](https://github.com/zhengxy03/language/blob/main/bash/README.md#22-mashminhash)
