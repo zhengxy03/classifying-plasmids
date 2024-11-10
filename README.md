@@ -271,6 +271,91 @@ cd ~/project/plasmid/grouping
 
 echo -e "#Serial\tGroup\tCount\tTarget" > ../taxon/group_target.tsv
 
+cat next.tsv | parallel -j 4 -k --line-buffer '
+    echo >&2 "==> {}"
+
+    GROUP_NAME = {/.}
+    TARGET_NAME = $(head -n 1 {} | perl -pe "s/\.\d+//g")
+    SERIAL={#}
+    COUNT = $(cat {} | wc -l)
+    echo -e "${SERIAL}\t${GROUP_NAME}\t${COUNT}\t${TARGET_NAME}" >> ../taxon/group_target.tsv
+
+    faops order ../nr/refseq.fa {} stdout | faops filter -s stdin stdout > ../genomes/${GROUP_NAME}.fa
+'
+
+cat next.tsv | parallel -j 4 -k --line-buffer '
+    echo >&2 "==> {}"
+
+    GROUP_NAME = {/.}
+    faops size ../genomes/${GROUP_NAME}.fa > ../taxon/${GROUP_NAME}.sizes
+'
+#Optional: RepeatMasker
+#egaz repeatmasker -p 16 ../genomes/*.fa -o ../genomes/
+
+find genomes -maxdepth 1 -type f -name "*.fa" | sort | parallel -j 4 '
+    split-name {} {.}
+'
+
+find genomes -maxdepth 2 -mindepth 2 -type f -name "*.fa" | sort | parallel -j 4 '
+    mkdir -p {.}
+    mv {} {.}
+' 
+``` 
+* preseq
+```
+cd ~/project/plasmid
+
+cat taxon/group_target.tsv | parallel -j 4 -k --colseq '\t' --line-buffer --no-run-if-empty '
+    echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
+
+    for name in $(cat taxon/{2}.sizes | cut -f 1);do
+        egaz preseq genomes/{2}/${name}
+    done
+'
+```
+* Check outliers of lengths
+```
+cd ~/project/plasmid
+
+cat taxon/*.sizes | cut -f 1 | wc -l
+
+cat taxon/*.sizes | cut -f 2 | paste -sd+ | bc
+
+cat taxon/group_target.tsv | sed -e "1d" | parallel --colseq '\t' --no-run-if-empty --line-buffer -j 4 -k '
+    echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
+
+    median=$(cat taxon/{2}.sizes | datamash median 2)
+    mad=$(cat taxon/{2}/sizes | datamash mad 2)
+    lower_limit=$(bc <<< " ( ${median} - 2 * ${mad}) / 2 " )
+
+    lines=$(tsv-filter taxon/{2}.sizes --le "2:${lower_limit}" | wc -l)
+    if (($lines > 0)); then
+        echo >&2 " $lines lines to be filtered " 
+        tsv-join taxon/{2}.sizes -e -f <(tsv-filter taxon/{2}.sizes --le "2:${lower_limit}" > taxon/{2}.filtered.sizes
+        mv taxon/{2}.filtered.sizes taxon/{2}.sizes
+    fi
+'
+cat taxon/*.sizes | cut -f 1 | wc -l
+cat taxon/*.sizes | cut -f 2 | paste -sd+ | bc
+```
+* Rsync to hpcc
+```
+rsync -avP ~/project/plasmid wangq@202.119.37.251:data/plasmid
+```
+# 5 Plasmid:Run
+```
+cd ~/project/plasmid
+
+cat taxon/group_target.tsv | sed -e "1d" | grep "^53" | parallel --colseq '\t' --no-run-if-empty --line-buffer -j 1 -k '
+    echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
+
+    egaz template genomes/{2}/{4} $(cat taxon/{2}.sizes | cut -f 1 | grep -v -x "{4}" | xargs -I[] echo "genomes/{2}/[]"
+        -multi -o groups/{2}/ --order --parallel 24 -v
+
+    bsub -q mpi -n 24 -J "{2}-1_pair" "bash groups/{2}/1_pair.sh"
+    bsub -w "ended({2}-1_pair)" -q mpi -n 24 -J "{2}-3_multi" "bash groups/{2}/3_multi.sh"
+'
+    
 # others
 * MinHash
 [MinHash](https://github.com/zhengxy03/language/blob/main/bash/README.md#22-mashminhash)
@@ -278,3 +363,5 @@ echo -e "#Serial\tGroup\tCount\tTarget" > ../taxon/group_target.tsv
 在每一步合并过程中尽可能减少簇内方差的增加。<br>
 簇内平方和（WCSS）：
 WCSS是衡量簇内离散程度的指标。对于一个簇，WCSS定义为簇内所有点与簇质心之间距离的平方和。
+* MPI
+MPI（Message Passing Interface，消息传递接口）是一种标准化和面向高性能计算的通信协议，用于在并行计算环境中的不同进程之间传递消息。它允许多个计算节点（通常是不同的计算机或多核处理器上的不同核心）进行通信和数据交换，以协调工作并解决大规模计算问题。
