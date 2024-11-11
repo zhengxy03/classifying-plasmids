@@ -325,20 +325,20 @@ cat taxon/group_target.tsv |
 cd ~/project/plasmid
 
 cat taxon/*.sizes | cut -f 1 | wc -l
-
+#3441
 cat taxon/*.sizes | cut -f 2 | paste -sd+ | bc
-
+#444706667
 cat taxon/group_target.tsv | sed -e "1d" | parallel --colsep '\t' --no-run-if-empty --line-buffer -j 4 -k '
     echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
 
     median=$(cat taxon/{2}.sizes | datamash median 2)
     mad=$(cat taxon/{2}/sizes | datamash mad 2)
-    lower_limit=$(bc <<< " ( ${median} - 2 * ${mad}) / 2 " )
+    lower_limit=$( bc <<< " ( ${median} - 2 * ${mad}) / 2 " )
 
     lines=$(tsv-filter taxon/{2}.sizes --le "2:${lower_limit}" | wc -l)
-    if (($lines > 0)); then
+    if ((lines > 0)); then
         echo >&2 " $lines lines to be filtered " 
-        tsv-join taxon/{2}.sizes -e -f <(tsv-filter taxon/{2}.sizes --le "2:${lower_limit}" > taxon/{2}.filtered.sizes
+        tsv-join taxon/{2}.sizes -e -f <(tsv-filter taxon/{2}.sizes --le "2:${lower_limit}") > taxon/{2}.filtered.sizes
         mv taxon/{2}.filtered.sizes taxon/{2}.sizes
     fi
 '
