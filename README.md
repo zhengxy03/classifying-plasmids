@@ -271,47 +271,54 @@ cd ~/project/plasmid/grouping
 
 echo -e "#Serial\tGroup\tCount\tTarget" > ../taxon/group_target.tsv
 
-cat next.tsv | parallel -j 4 -k --line-buffer '
+cat next.tsv | cut -d" " -f 2 | parallel -j 4 -k --line-buffer '
     echo >&2 "==> {}"
 
-    GROUP_NAME = {/.}
-    TARGET_NAME = $(head -n 1 {} | perl -pe "s/\.\d+//g")
+    GROUP_NAME={/.}
+    TARGET_NAME=$(head -n 1 {} | perl -pe "s/\.\d+//g")
     SERIAL={#}
-    COUNT = $(cat {} | wc -l)
+    COUNT=$(cat {} | wc -l)
     echo -e "${SERIAL}\t${GROUP_NAME}\t${COUNT}\t${TARGET_NAME}" >> ../taxon/group_target.tsv
 
     faops order ../nr/refseq.fa {} stdout | faops filter -s stdin stdout > ../genomes/${GROUP_NAME}.fa
 '
 
-cat next.tsv | parallel -j 4 -k --line-buffer '
+#cat taxon/group_target.tsv
+##Serial Group   Count   Target
+#1       00_310  257     NC_010606
+#3       7_3     144     NC_006134
+
+cat next.tsv | cut -d" " -f 2 | parallel -j 4 -k --line-buffer '
     echo >&2 "==> {}"
 
-    GROUP_NAME = {/.}
+    GROUP_NAME={/.}
     faops size ../genomes/${GROUP_NAME}.fa > ../taxon/${GROUP_NAME}.sizes
 '
+
 #Optional: RepeatMasker
 #egaz repeatmasker -p 16 ../genomes/*.fa -o ../genomes/
 
-find genomes -maxdepth 1 -type f -name "*.fa" | sort | parallel -j 4 '
-    split-name {} {.}
+find ../genomes -maxdepth 1 -type f -name "*.fa" | sort | parallel -j 4 '
+    faops split-name {} {.}
 '
 
-find genomes -maxdepth 2 -mindepth 2 -type f -name "*.fa" | sort | parallel -j 4 '
+find ../genomes -maxdepth 2 -mindepth 2 -type f -name "*.fa" | sort | parallel -j 4 '
     mkdir -p {.}
     mv {} {.}
 ' 
 ``` 
-* preseq
+* prepseq
 ```
 cd ~/project/plasmid
+cat taxon/group_target.tsv |
+    sed -e '1d' |
+    parallel --colsep '\t' --no-run-if-empty --linebuffer -k -j 4 '
+        echo -e "==> Group: [{2}]\tTarget: [{4}]\n"
 
-cat taxon/group_target.tsv | parallel -j 4 -k --colseq '\t' --line-buffer --no-run-if-empty '
-    echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
-
-    for name in $(cat taxon/{2}.sizes | cut -f 1);do
-        egaz preseq genomes/{2}/${name}
-    done
-'
+        for name in $(cat taxon/{2}.sizes | cut -f 1); do
+            egaz prepseq genomes/{2}/${name}
+        done
+    '
 ```
 * Check outliers of lengths
 ```
@@ -321,7 +328,7 @@ cat taxon/*.sizes | cut -f 1 | wc -l
 
 cat taxon/*.sizes | cut -f 2 | paste -sd+ | bc
 
-cat taxon/group_target.tsv | sed -e "1d" | parallel --colseq '\t' --no-run-if-empty --line-buffer -j 4 -k '
+cat taxon/group_target.tsv | sed -e "1d" | parallel --colsep '\t' --no-run-if-empty --line-buffer -j 4 -k '
     echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
 
     median=$(cat taxon/{2}.sizes | datamash median 2)
@@ -346,7 +353,7 @@ rsync -avP ~/project/plasmid wangq@202.119.37.251:data/plasmid
 ```
 cd ~/project/plasmid
 
-cat taxon/group_target.tsv | sed -e "1d" | grep "^53" | parallel --colseq '\t' --no-run-if-empty --line-buffer -j 1 -k '
+cat taxon/group_target.tsv | sed -e "1d" | grep "^53" | parallel --colsep '\t' --no-run-if-empty --line-buffer -j 1 -k '
     echo -e "==> Group:[{2}]\tTarget:[{4}]\n"
 
     egaz template genomes/{2}/{4} $(cat taxon/{2}.sizes | cut -f 1 | grep -v -x "{4}" | xargs -I[] echo "genomes/{2}/[]"
@@ -355,7 +362,12 @@ cat taxon/group_target.tsv | sed -e "1d" | grep "^53" | parallel --colseq '\t' -
     bsub -q mpi -n 24 -J "{2}-1_pair" "bash groups/{2}/1_pair.sh"
     bsub -w "ended({2}-1_pair)" -q mpi -n 24 -J "{2}-3_multi" "bash groups/{2}/3_multi.sh"
 '
-    
+# clean
+find groups -mindepth 1 -maxdepth 3 -type d -name "*.raw" | parallel -r rm -fr
+find groups -mindepth 1 -maxdepth 3 -type d -name "*_fasta" | parallel -r rm -fr
+echo $(find groups -maxdepth 1 -maxdepth 1 -type d | wc -l) \
+$(find groups -maxdepth 3 -mindepth 1 -type f -name "*.nwk.pdf" | wc -l )
+```
 # others
 * MinHash
 [MinHash](https://github.com/zhengxy03/language/blob/main/bash/README.md#22-mashminhash)
